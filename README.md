@@ -115,3 +115,12 @@ embed in another tool, but it remains to be seen how much of it is reusable.
 - The colorspace dropdown is unfiltered, which is unwieldy against a studio
   config with hundreds of spaces.
 - No monitor ICC profile handling, and no Wayland HDR output.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
+
+`third_party/stb_image.h` is Sean Barrett's stb_image, dual licensed MIT /
+public domain; its terms are at the bottom of that file. Dependencies pulled in
+at build time (SDL3, OpenColorIO, libepoxy, Dear ImGui, and OpenImageIO or
+OpenEXR) carry their own licenses.
