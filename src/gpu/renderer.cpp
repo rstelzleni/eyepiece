@@ -338,9 +338,8 @@ bool Renderer::draw(const Viewport& vp, ColorManager& color,
     const double zoom = vp.effective_zoom();
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, image_tex_);
-    // The whole point: at or above 1:1 every source pixel becomes an exact
-    // square block. Below 1:1, nearest sampling would alias badly, so fall
-    // back to the mip chain.
+    // At or above 1:1 every source pixel becomes an exact square block. Below
+    // 1:1, nearest sampling would alias badly, so fall back to the mip chain.
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
                     zoom >= 1.0 ? GL_NEAREST : GL_LINEAR_MIPMAP_LINEAR);
