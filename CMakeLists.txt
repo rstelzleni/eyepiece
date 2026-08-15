@@ -59,8 +59,6 @@ target_link_libraries(imgui PUBLIC SDL3::SDL3)
 
 # ---- core library -----------------------------------------------------------
 # This is the future libeyepiece. It knows nothing about ImGui, SDL, or argv.
-# Keeping that true from the first commit is what makes the embeddable-library
-# goal a packaging problem later instead of a rewrite.
 add_library(eyepiece_core STATIC
   src/core/loader.cpp
   src/core/viewport.cpp

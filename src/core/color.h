@@ -15,9 +15,9 @@ namespace eye {
 // source plus the LUT resources that shader needs.
 //
 // Exposure rides an OCIO *dynamic property* rather than being baked into the
-// transform. That distinction matters: baking it would mean rebuilding the
-// processor and recompiling the shader on every slider frame, which is tens of
-// milliseconds of stall per drag. As a dynamic property it is just a uniform.
+// transform. Baking it would mean rebuilding the processor and recompiling the
+// shader on every slider frame, which is tens of milliseconds of stall per
+// drag. As a dynamic property it is just a uniform.
 class ColorManager {
 public:
     bool init(std::string* error);

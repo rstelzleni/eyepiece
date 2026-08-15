@@ -7,11 +7,20 @@ display transform between those numbers and your screen.
 Built for the case where you are hacking on a renderer or a compressor and need
 to know what a pixel *is*, not what it looks like after an unlabelled gamma.
 
+Usage:
+
+```sh
+eyepiece image.png
+eyepiece images/*
+```
+
 ## Status
 
-Working scaffold. Loads an image, pans and zooms with exact square pixels,
-probes pixel values, applies an OCIO display/view transform on the GPU, and
-shows metadata.
+What exists now is a working scaffold, but it could use a lot more features.
+Today it loads an image, pans and zooms with exact square pixels, probes pixel
+values, applies an OCIO display/view transform on the GPU, and shows metadata.
+
+I find it useful in this form, but rough.
 
 ## Build
 
@@ -27,11 +36,8 @@ cmake --build build
 ### Decode backend
 
 OpenImageIO is the intended backend — it brings the format coverage and the
-metadata that make this tool worth using:
-
-```sh
-sudo pacman -S openimageio     # then re-run cmake
-```
+metadata that make this tool worth using. If OIIO is installed `cmake` will
+find it and build against it.
 
 Without it the build falls back to OpenEXR + stb_image, which covers
 exr/png/jpg/hdr/tga and enough EXR header attributes to be useful. Both sit
@@ -68,40 +74,42 @@ src/gpu/
 src/app/        SDL3 window, event loop, ImGui panels
 ```
 
-Three decisions worth knowing about:
+The source image is decoded into a float buffer on the CPU so that we can
+display probe pixel values from the source file without a GPU readback. This
+means really large images might use a lot of RAM, but I think this tradeoff is
+ok for good performance. The source and display values are shown side by side
+in the status bar.
 
-**The float buffer stays on the CPU.** It is not a staging area. The probe reads
-it directly, so reported values are what the file contains — not a GPU readback
-of whatever the display transform produced. The status bar shows source and
-display values side by side.
+Color conversions happen through an OCIO generated shader on the GPU, when
+the backend has OCIO available. This way we get the expected color management
+with any LUT textures applied. The exposure slider is applied through a 
+uniform in the shader, so it can be adjusted without modifying the generated
+shaders.
 
-**OCIO emits the shader.** `getDefaultGPUProcessor()` → `GpuShaderDesc` hands
-back GLSL source plus the LUT textures it references, which get spliced into the
-fragment shader. Exposure rides an OCIO *dynamic property* rather than being
-baked into the transform, so dragging the slider updates a uniform instead of
-rebuilding the processor and recompiling the shader every frame.
+Image render size is coordinated through `Viewport.image_rect()` which snaps
+to whole device pixels at integer zoom, to prevent sampling between pixels.
+When zooming in magnification is `GL_NEAREST` so we don't interpolate between
+pixels, zooming out uses an image mip chain to avoid aliasing.
 
-**Everything agrees via `Viewport::image_rect()`.** That one rect snaps to whole
-device pixels at integer zoom, and the renderer, the probe, and the value
-overlay all derive from it. Magnification is `GL_NEAREST`; minification falls
-back to the mip chain, because nearest sampling below 1:1 aliases badly.
+## Development direction
 
-## Deliberate non-goals
+Image sequences and playback are out of scope, I'm not trying to rebuild OpenRV.
+This is also not intended to become an image editor. It's a viewer only.
 
-Image sequences and playback. That is how this accidentally becomes OpenRV. Not
-editing either.
+Things I'd like to add are, better ui, color copying, image A/B comparison,
+more metadata and image analysis options (histograms, intensity, hue, anything
+else).
 
-`Session` holds a list rather than one image, because A/B comparison
-(wipe/diff) is the one feature already known to be coming, and retrofitting
-"there might be two images" through a renderer and UI that assume one is the
-rewrite worth twenty lines to avoid.
+I also built this so that the core is a potentially reusable library you could
+embed in another tool, but it remains to be seen how much of it is reusable.
 
 ## Known gaps
 
 - HiDPI: the viewport works in logical coordinates so its rects register with
   ImGui's. On a fractional-scale display, pixel snapping quantizes to logical
-  pixels rather than device pixels.
-- Large images load fully into RAM. No tiling or paging, so 16k EXRs will hurt.
+  pixels rather than device pixels. This "looks good to me" but ymmv.
+- Large images load fully into RAM as 4 channel float images. No tiling or
+  paging, so 16k EXRs will eat ~2GB of RAM.
 - Multi-part and deep EXR are not handled; the builtin backend reads the RGBA
   interface only.
 - The colorspace dropdown is unfiltered, which is unwieldy against a studio

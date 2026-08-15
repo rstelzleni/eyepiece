@@ -8,11 +8,6 @@
 namespace eye {
 
 // The set of loaded images and which one is showing.
-//
-// A single-image viewer does not need a list. This is a list from the start
-// because A/B comparison is the one feature we already know is coming, and
-// retrofitting "there might be two images" through a renderer and a UI that
-// assume one is exactly the kind of rewrite worth spending twenty lines to avoid.
 class Session {
 public:
     void add(ImagePtr img) {
