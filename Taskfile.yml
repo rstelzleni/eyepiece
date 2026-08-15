@@ -1,0 +1,18 @@
+version: '3'
+
+tasks:
+  default:
+    desc: 'Show available tasks'
+    cmds:
+      - task --list
+
+  build:
+    desc: 'Build the project'
+    cmds:
+      - cmake -S . -B build
+      - cmake --build build
+
+  run:
+    desc: 'Run the latest build, use like: task run -- <args>'
+    cmds:
+      - ./build/eyepiece {{.CLI_ARGS}}
