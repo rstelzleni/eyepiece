@@ -28,7 +28,8 @@ void usage() {
         "  f              fit to window        1    zoom 1:1\n"
         "  + / -          zoom step            tab  toggle side panel\n"
         "  c r g b a l    channel view         p    toggle pixel values\n"
-        "  left/right     previous/next image  q    quit\n"
+        "  [ / ]          mip level (KTX2)     q    quit\n"
+        "  left/right     previous/next image\n"
         "\n"
         "color management follows $OCIO when set, otherwise the OCIO builtin config.\n"
         "backend: %s\n",
@@ -227,6 +228,16 @@ int main(int argc, char** argv) {
                         case SDLK_L: state.draw.channel = eye::ChannelView::Luma; break;
                         case SDLK_P:
                             state.show_pixel_values = !state.show_pixel_values;
+                            break;
+                        case SDLK_LEFTBRACKET:
+                        case SDLK_RIGHTBRACKET:
+                            if (eye::ImagePtr im = state.session.current();
+                                im && im->has_mips()) {
+                                im->set_active_level(
+                                    im->active_level +
+                                    (event.key.key == SDLK_RIGHTBRACKET ? 1 : -1));
+                                state.image_changed = true;
+                            }
                             break;
                         case SDLK_TAB: state.show_panel = !state.show_panel; break;
                         case SDLK_RIGHT:

@@ -44,6 +44,13 @@ exr/png/jpg/hdr/tga and enough EXR header attributes to be useful. Both sit
 behind `load_image()` in `src/core/loader.h`; nothing above that seam knows
 which one ran. `--help` reports the active backend.
 
+KTX2 / KTX is read by a vendored, statically linked libktx regardless of the
+backend, since neither OIIO nor the fallback decodes it. UASTC and ETC1S
+payloads are transcoded to RGBA8, common uncompressed Vulkan formats
+(including RGBA16F / RGBA32F) are read directly, and the stored mip chain is
+kept — pick a level with the `Mip` chooser or `[` / `]`. Build with
+`-DEYEPIECE_WITH_KTX=OFF` to drop the dependency.
+
 ## Controls
 
 | | |
@@ -55,6 +62,7 @@ which one ran. `--help` reports the active backend.
 | `+` `-` | zoom step |
 | `c r g b a l` | channel: composite, red, green, blue, alpha, luma |
 | `p` / `tab` | toggle pixel values / side panel |
+| `[` `]` | previous / next stored mip level (KTX2) |
 | `←` `→` | previous / next image |
 | `q` | quit |
 
@@ -64,8 +72,9 @@ Color management follows `$OCIO` when set, otherwise the OCIO builtin config.
 
 ```
 src/core/     the future libeyepiece -- no SDL, no ImGui, no argv
-  image.h       decoded float32 RGBA + metadata
+  image.h       decoded float32 RGBA + metadata, one or more mip levels
   loader.*      OIIO or builtin, behind one function
+  loader_ktx2.* KTX2 via vendored libktx: transcode/decode -> float RGBA levels
   color.*       OCIO config -> GLSL + LUTs, and a CPU path for the probe
   viewport.*    pan/zoom math and the screen<->image mapping
   session.h     the list of loaded images

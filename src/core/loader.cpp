@@ -1,4 +1,5 @@
 #include "loader.h"
+#include "loader_ktx2.h"
 
 #include <algorithm>
 #include <cctype>
@@ -20,6 +21,7 @@
 #endif
 
 namespace eye {
+
 namespace {
 
 std::string lower_ext(const std::string& path) {
@@ -86,6 +88,10 @@ std::vector<std::string> supported_extensions() {
         std::string e;
         while (std::getline(exts, e, ',')) out.push_back(e);
     }
+#ifdef EYEPIECE_WITH_KTX
+    out.push_back("ktx");
+    out.push_back("ktx2");
+#endif
     std::sort(out.begin(), out.end());
     out.erase(std::unique(out.begin(), out.end()), out.end());
     return out;
@@ -96,6 +102,9 @@ ImagePtr load_image(const std::string& path, std::string* error) {
         if (error) *error = msg;
         return nullptr;
     };
+
+    const std::string ext = lower_ext(path);
+    if (ext == "ktx2" || ext == "ktx") return load_ktx2(path, error);
 
     auto in = OIIO::ImageInput::open(path);
     if (!in) return fail(OIIO::geterror());
@@ -160,8 +169,15 @@ ImagePtr load_image(const std::string& path, std::string* error) {
 const char* loader_backend() { return "builtin (OpenEXR + stb_image)"; }
 
 std::vector<std::string> supported_extensions() {
-    return {"bmp", "exr", "gif", "hdr", "jpeg", "jpg", "pgm",
-            "pic", "png", "pnm", "ppm", "psd", "tga"};
+    std::vector<std::string> out = {"bmp", "exr", "gif", "hdr", "jpeg", "jpg",
+                                    "pgm", "pic", "png", "pnm", "ppm", "psd",
+                                    "tga"};
+#ifdef EYEPIECE_WITH_KTX
+    out.push_back("ktx");
+    out.push_back("ktx2");
+    std::sort(out.begin(), out.end());
+#endif
+    return out;
 }
 
 namespace {
@@ -301,7 +317,9 @@ ImagePtr load_image(const std::string& path, std::string* error) {
         if (error) *error = "no such file: " + path;
         return nullptr;
     }
-    if (lower_ext(path) == "exr") return load_exr(path, error);
+    const std::string ext = lower_ext(path);
+    if (ext == "ktx2" || ext == "ktx") return load_ktx2(path, error);
+    if (ext == "exr") return load_exr(path, error);
     return load_stb(path, error);
 }
 

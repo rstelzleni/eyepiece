@@ -10,7 +10,12 @@ tasks:
     desc: 'Build the project'
     cmds:
       - cmake -S . -B build
-      - cmake --build build
+      - cmake --build build -j8
+
+  clean:
+    desc: 'Clean the build folder'
+    cmds:
+      - rm -rf ./build
 
   run:
     desc: 'Run the latest build, use like: task run -- <args>'
