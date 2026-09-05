@@ -51,6 +51,13 @@ payloads are transcoded to RGBA8, common uncompressed Vulkan formats
 kept — pick a level with the `Mip` chooser or `[` / `]`. Build with
 `-DEYEPIECE_WITH_KTX=OFF` to drop the dependency.
 
+ASTC blocks — including the `basisu` tool's UASTC HDR, which libktx 4.4.2 will
+not decode itself — go through astcenc, which already ships inside the KTX
+build. HDR lands as scene-linear float. This path (`src/core/astc_decode.*`
+plus the `astc_from_vkformat` branch in `loader_ktx2.cpp`) is deliberately
+isolated so it can be pruned once a vendored libktx covers it;
+`-DEYEPIECE_WITH_ASTC=OFF` disables it now.
+
 ## Controls
 
 | | |
@@ -75,6 +82,7 @@ src/core/     the future libeyepiece -- no SDL, no ImGui, no argv
   image.h       decoded float32 RGBA + metadata, one or more mip levels
   loader.*      OIIO or builtin, behind one function
   loader_ktx2.* KTX2 via vendored libktx: transcode/decode -> float RGBA levels
+  astc_decode.* raw ASTC / UASTC-HDR blocks -> float RGBA, via bundled astcenc
   color.*       OCIO config -> GLSL + LUTs, and a CPU path for the probe
   viewport.*    pan/zoom math and the screen<->image mapping
   session.h     the list of loaded images

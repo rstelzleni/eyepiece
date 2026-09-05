@@ -11,6 +11,10 @@ endif()
 
 option(EYEPIECE_USE_OIIO "Decode with OpenImageIO when available" ON)
 option(EYEPIECE_WITH_KTX "Read KTX2 / KTX via a vendored, static libktx" ON)
+# astcenc ships inside KTX-Software; this reuses it to decode ASTC / UASTC-HDR
+# blocks that libktx 4.4.2 itself will not. Prunable: turn off (or delete the
+# call site in loader_ktx2.cpp) once a vendored libktx handles those natively.
+option(EYEPIECE_WITH_ASTC "Decode ASTC / UASTC-HDR blocks with astcenc" ON)
 
 add_library(eyepiece_warnings INTERFACE)
 target_compile_options(eyepiece_warnings INTERFACE -Wall -Wextra -Wpedantic)
@@ -69,6 +73,17 @@ if(EYEPIECE_WITH_KTX)
   )
   FetchContent_MakeAvailable(ktx)
   set(BUILD_SHARED_LIBS ${_eyepiece_bsl_saved})
+
+  # KTX builds one ISA-specialized astcenc static lib and names it for the host
+  # (avx2 / sse2 / neon / none). Its -static target carries a PUBLIC include dir
+  # for <astcenc.h>, so linking it is all that is needed.
+  set(_eyepiece_astcenc "")
+  foreach(_isa avx2 sse4.1 sse2 neon none)
+    if(TARGET astcenc-${_isa}-static)
+      set(_eyepiece_astcenc astcenc-${_isa}-static)
+      break()
+    endif()
+  endforeach()
 endif()
 
 add_library(imgui STATIC
@@ -90,6 +105,7 @@ target_link_libraries(imgui PUBLIC SDL3::SDL3)
 add_library(eyepiece_core STATIC
   src/core/loader.cpp
   src/core/loader_ktx2.cpp
+  src/core/astc_decode.cpp
   src/core/viewport.cpp
   src/core/color.cpp
   src/gpu/renderer.cpp
@@ -105,6 +121,14 @@ if(EYEPIECE_WITH_KTX)
   # public interface and just on the core library.
   target_compile_definitions(eyepiece_core PRIVATE EYEPIECE_WITH_KTX)
   target_link_libraries(eyepiece_core PRIVATE ktx)
+
+  if(EYEPIECE_WITH_ASTC AND _eyepiece_astcenc)
+    target_compile_definitions(eyepiece_core PRIVATE EYEPIECE_WITH_ASTC)
+    target_link_libraries(eyepiece_core PRIVATE ${_eyepiece_astcenc})
+  elseif(EYEPIECE_WITH_ASTC)
+    message(WARNING "eyepiece: EYEPIECE_WITH_ASTC is ON but no astcenc target "
+                    "was found in the KTX build; ASTC/UASTC-HDR stays disabled")
+  endif()
 endif()
 
 if(EYEPIECE_OIIO_ACTIVE)
@@ -126,3 +150,4 @@ install(TARGETS eyepiece RUNTIME DESTINATION bin)
 
 message(STATUS "eyepiece: decode backend  = ${EYEPIECE_OIIO_ACTIVE}")
 message(STATUS "eyepiece: KTX2 (libktx)   = ${EYEPIECE_WITH_KTX}")
+message(STATUS "eyepiece: ASTC (astcenc)  = ${EYEPIECE_WITH_ASTC} [${_eyepiece_astcenc}]")

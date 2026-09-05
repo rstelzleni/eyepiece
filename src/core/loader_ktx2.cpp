@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "core/astc_decode.h"
+
 #ifdef EYEPIECE_WITH_KTX
 #include <ktx.h>
 #endif
@@ -177,6 +179,40 @@ void flip_vertical(float* p, int w, int h) {
     }
 }
 
+// The 14 ASTC block footprints, in VkFormat order (4x4, 5x4, 5x5, 6x5, ...).
+constexpr int kAstcBlocks[14][2] = {{4, 4},   {5, 4},  {5, 5},   {6, 5},
+                                    {6, 6},   {8, 5},  {8, 6},   {8, 8},
+                                    {10, 5},  {10, 6}, {10, 8},  {10, 10},
+                                    {12, 10}, {12, 12}};
+
+// True if `vk` is an ASTC VkFormat, filling in block size and profile. Covers
+// VK_FORMAT_ASTC_*_{UNORM,SRGB}_BLOCK (157..184) and the HDR
+// VK_FORMAT_ASTC_*_SFLOAT_BLOCK range (1000066000..1000066013) that basisu's
+// UASTC HDR mode writes.
+//
+// PRUNE POINT: this and its call site in load_ktx2() exist only because libktx
+// <= 4.4.2 will not hand back pixels for these. Delete both when the vendored
+// libktx gains that; astc_decode.* can stay for a standalone .astc reader.
+bool astc_from_vkformat(uint32_t vk, int& bx, int& by, bool& hdr, bool& srgb) {
+    if (vk >= 157 && vk <= 184) {
+        const uint32_t idx = vk - 157;
+        bx = kAstcBlocks[idx / 2][0];
+        by = kAstcBlocks[idx / 2][1];
+        hdr = false;
+        srgb = (idx & 1u) != 0;
+        return true;
+    }
+    if (vk >= 1000066000u && vk <= 1000066013u) {
+        const uint32_t idx = vk - 1000066000u;
+        bx = kAstcBlocks[idx][0];
+        by = kAstcBlocks[idx][1];
+        hdr = true;
+        srgb = false;
+        return true;
+    }
+    return false;
+}
+
 // KTX key/value payloads are byte strings. The ones worth showing (KTXwriter,
 // KTXorientation, KTXswizzle, ...) are printable ASCII; anything else is noise
 // in a metadata table, so summarize it by length.
@@ -246,7 +282,28 @@ ImagePtr load_ktx2(const std::string& path, std::string* error) {
 
     const uint32_t vkfmt = ktx->vkFormat;
     const int bpp = bytes_per_pixel(vkfmt);
-    if (bpp == 0) {
+
+    // ASTC (incl. basisu UASTC HDR, which libktx <= 4.4.2 cannot decode): pull
+    // the raw blocks through astcenc instead of decode_level(). See the
+    // PRUNE POINT note on astc_from_vkformat().
+    int astc_bx = 0, astc_by = 0;
+    bool astc_hdr = false, astc_srgb = false;
+    const bool is_astc =
+        astc_from_vkformat(vkfmt, astc_bx, astc_by, astc_hdr, astc_srgb);
+    if (is_astc) {
+        payload = "ASTC " + std::to_string(astc_bx) + "x" +
+                  std::to_string(astc_by) + (astc_hdr ? " HDR" : " LDR");
+        if (ktx->supercompressionScheme != KTX_SS_NONE)
+            return fail("KTX2: ASTC payload is still supercompressed after load "
+                        "(scheme " +
+                        std::to_string(
+                            static_cast<int>(ktx->supercompressionScheme)) +
+                        ")");
+        if (!astc_decode_available())
+            return fail("KTX2: file is " + payload +
+                        ", but ASTC decoding was disabled at build time "
+                        "(EYEPIECE_WITH_ASTC=OFF)");
+    } else if (bpp == 0) {
         return fail("KTX2: vkFormat " + std::to_string(vkfmt) +
                     " has no CPU decoder in this build (block-compressed or an "
                     "uncommon layout)");
@@ -272,36 +329,67 @@ ImagePtr load_ktx2(const std::string& path, std::string* error) {
         if (rc != KTX_SUCCESS)
             return fail(std::string("KTX2: level offset lookup failed: ") +
                         ktxErrorString(rc));
-        if (offset + npix * static_cast<size_t>(bpp) > ktx->dataSize)
-            return fail("KTX2: level " + std::to_string(lvl) +
-                        " runs past the loaded data");
 
         ImageLevel& out = img->levels[lvl];
         out.width = lw;
         out.height = lh;
-        out.pixels.resize(npix * 4);
-        if (!decode_level(vkfmt, data + offset, npix, out.pixels.data()))
-            return fail("KTX2: no decoder for vkFormat " +
-                        std::to_string(vkfmt));
+
+        if (is_astc) {
+            const ktx_size_t blk_bytes =
+                ktxTexture_GetImageSize(ktxTexture(ktx), lvl);
+            if (offset + blk_bytes > ktx->dataSize)
+                return fail("KTX2: ASTC level " + std::to_string(lvl) +
+                            " runs past the loaded data");
+            AstcImage ai;
+            ai.data = data + offset;
+            ai.data_len = blk_bytes;
+            ai.width = lw;
+            ai.height = lh;
+            ai.block_x = astc_bx;
+            ai.block_y = astc_by;
+            ai.hdr = astc_hdr;
+            ai.srgb = astc_srgb;
+            std::string derr;
+            if (!decode_astc(ai, out.pixels, &derr))
+                return fail("KTX2: " + derr);
+        } else {
+            if (offset + npix * static_cast<size_t>(bpp) > ktx->dataSize)
+                return fail("KTX2: level " + std::to_string(lvl) +
+                            " runs past the loaded data");
+            out.pixels.resize(npix * 4);
+            if (!decode_level(vkfmt, data + offset, npix, out.pixels.data()))
+                return fail("KTX2: no decoder for vkFormat " +
+                            std::to_string(vkfmt));
+        }
         if (flip) flip_vertical(out.pixels.data(), lw, lh);
     }
     img->set_active_level(0);
 
     img->format = "ktx2";
-    img->source_channels = static_cast<int>(src_components ? src_components : 4);
+    // astcenc always yields RGBA; basisu's ASTC HDR DFD otherwise reports 1.
+    img->source_channels =
+        is_astc ? 4 : static_cast<int>(src_components ? src_components : 4);
 
-    switch (transfer) {
-        case KHR_DF_TRANSFER_SRGB:
-            img->hint = ColorHint::sRGB;
-            break;
-        case KHR_DF_TRANSFER_LINEAR:
-            // Linear + a float payload reads as scene-linear; linear 8-bit is
-            // usually data (normals, masks) -- let the color module decide.
-            img->hint = (bpp >= 8) ? ColorHint::SceneLinear : ColorHint::Unknown;
-            break;
-        default:
-            img->hint = ColorHint::Unknown;
-            break;
+    if (is_astc) {
+        img->hint = astc_hdr    ? ColorHint::SceneLinear
+                    : astc_srgb ? ColorHint::sRGB
+                                : ColorHint::Unknown;
+    } else {
+        switch (transfer) {
+            case KHR_DF_TRANSFER_SRGB:
+                img->hint = ColorHint::sRGB;
+                break;
+            case KHR_DF_TRANSFER_LINEAR:
+                // Linear + a float payload reads as scene-linear; linear 8-bit
+                // is usually data (normals, masks) -- let the color module
+                // decide.
+                img->hint =
+                    (bpp >= 8) ? ColorHint::SceneLinear : ColorHint::Unknown;
+                break;
+            default:
+                img->hint = ColorHint::Unknown;
+                break;
+        }
     }
 
     auto meta = [&](const std::string& k, const std::string& v) {
@@ -318,7 +406,11 @@ ImagePtr load_ktx2(const std::string& path, std::string* error) {
     meta("orientation", flip ? "y-up in file (flipped on load)" : "y-down");
     meta("premultiplied alpha",
          ktxTexture2_GetPremultipliedAlpha(ktx) ? "yes" : "no");
-    if (needs_transcode) meta("2D view", "transcoded to RGBA8");
+    if (needs_transcode)
+        meta("2D view", "transcoded to RGBA8");
+    else if (is_astc)
+        meta("2D view", astc_hdr ? "decoded via astcenc (linear float)"
+                                 : "decoded via astcenc");
 
     for (ktxHashListEntry* e = ktx->kvDataHead; e; e = ktxHashList_Next(e)) {
         char* key = nullptr;
