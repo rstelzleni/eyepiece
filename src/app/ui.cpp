@@ -87,6 +87,11 @@ void draw_ui(AppState& s) {
         ImGui::SameLine();
         ImGui::TextDisabled("%dx%d %s", img->width, img->height,
                             img->format.c_str());
+        if (img->has_mips()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("L%d/%d", img->active_level,
+                                img->level_count() - 1);
+        }
         ImGui::SameLine();
         ImGui::TextDisabled("| %.0f%%", s.viewport.effective_zoom() * 100.0);
         ImGui::SameLine();
@@ -173,6 +178,26 @@ void draw_ui(AppState& s) {
         int channel = static_cast<int>(s.draw.channel);
         if (ImGui::Combo("Channel", &channel, labels, IM_ARRAYSIZE(labels)))
             s.draw.channel = static_cast<ChannelView>(channel);
+
+        // Stored mip levels (KTX2). One level at a time, pixel-exact -- this is
+        // the level as it shipped, not a filter applied on the fly.
+        if (img && img->has_mips()) {
+            char preview[48];
+            std::snprintf(preview, sizeof(preview), "Level %d   %d x %d",
+                          img->active_level, img->width, img->height);
+            if (ImGui::BeginCombo("Mip", preview)) {
+                for (int i = 0; i < img->level_count(); ++i) {
+                    char lab[48];
+                    std::snprintf(lab, sizeof(lab), "Level %d   %d x %d", i,
+                                  img->levels[i].width, img->levels[i].height);
+                    if (ImGui::Selectable(lab, i == img->active_level)) {
+                        img->set_active_level(i);
+                        s.image_changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        }
 
         ImGui::Checkbox("Checkerboard", &s.draw.checkerboard);
         ImGui::Checkbox("Pixel grid", &s.draw.pixel_grid);
